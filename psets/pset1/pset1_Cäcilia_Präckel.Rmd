@@ -1,0 +1,205 @@
+---
+title: "MY457: Problem Set 1"
+date:  "`r format(Sys.time(), '%a/%d/%b')`"
+author: "L. Cäcilia Präckel"
+always_allow_html: true
+output: 
+  bookdown::pdf_document2:
+    toc: false
+
+---
+
+```{r setup, include = FALSE}
+# this chunk contains code that sets global options for the entire .Rmd. 
+# we use include=FALSE to suppress it from the top of the document, but it will still appear in the appendix. 
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE, linewidth=60)
+
+# you can include your libraries here:
+library(tidyverse)
+library(haven)
+
+# and any other options in R:
+options(scipen=999)
+
+```
+
+1 Concepts
+
+1.1
+The notation ${Y_i1}$ is used for the potential outcome of the response variable ${Y_i}$ when the explaining variable D is set to 1. This means, we look at an unobserved, hypothetical outcome that is counterfactual to ${Y_i0}$.
+For the same unit i, the quantity of ${Y_i1}$ would be equal to the observed value ${Y_i}$ if ${Y_i1}$ has been realised due to the treatment effect (D set to 1).
+
+1.2
+${E[Y_i0 | D_i = 1]}$ is the sum of all potential outcomes of ${Y_i0}$ under the condition of D=1, meaning the treatment effect is switched on.
+${E[Y_i0 | D_i = 0]}$ is the sum of all possible outcomes of ${Y_i0}$ under the condition of D=0, meaning the treatment effect is switched off.
+These quantities should be equal when the treatment effect is 0 because apparently, the condition of ${D_i}$ is non-informative, D and Y are not associated.
+The quantities should be unequal any time the treatment effect is bigger than 0, because then it has an affect on the two variables.
+
+1.3
+The average treatment effect ATE is defined as the mean of the differences of individual potential outcomes (in a binary case, the difference between ${Y_i0}$ and ${Y_i1}$). If we randomly assign individuals to the treatment and control group, we can identify the ATE because the assignment method is not dependent on any confounding variable X. We could also calculate the ATE when having non-randomly assigned treatment and control groups but then the calculated ATE might differ from the identified ATE.
+
+
+2 Simulations
+
+2.1 
+We first set a seed to enable reproducibility of the random numbers.
+We then define the number of observation to be 500 and the ATE to be 5000.
+A dataframe is created with three columns, age, being normally distributed, education, which is a categorical variable of 1,2,3 or 4 for each observation, and Y0, which is the potential outcome without treatment, also normally distributed.
+
+With mutate, we then add three new columns,
+one being the potential outcome Y1, which is calculated by adding the treatment effect to the potential outcome of Y0, 
+one being D the explaining variable, which takes the randomly assigned values 1 or 0 for each observation, 
+one being Y, the outcome variable which takes the value Y1 if D equals 1, otherwise Y0.
+
+2.2
+```{r 2.2 testing for balance with t-test}
+
+# Copying the code example from the assignment sheet
+set.seed(123)
+n <- 500
+tau <- 5000
+data <- data.frame(
+Age = rnorm(n, mean = 42, sd = 10),
+Education = sample(1:4, n, replace = TRUE),
+Y0 = rnorm(n, mean = 50000, sd = 10000)
+)
+data <- data %>% mutate(
+Y1 = Y0 + tau,
+D = sample(c(0, 1), n, replace = TRUE),
+Y = ifelse(D == 1, Y1, Y0)
+)
+
+# Testing the balance of D=1 and D=0 of two characteristics, age and education
+# using a t-test
+print(t.test(data$Age ~ D, data=data))
+print(t.test(data$Education ~ D, data=data))
+```
+The mean of the potential outcomes for both age and education are close to each other, with 41.77 and 42.98, and 2.48 and 2.53, respectively. The two characteristics of the people in the experiment seem reasonably balanced.
+
+2.3
+```{r 2.3 calculating difference-in-means}
+
+paste("Difference-in-means of the potential outcomes:", abs((mean(data$Y0) - mean(data$Y1))))
+```
+The difference-in-means of the potential outcomes is equal to the average treatment effect. This is not surprising because we do not have any confounding variables, the data set is rather balanced, and treatment was assigned randomly. This is of course barely reproducible in a real-world environment.
+
+2.4
+```{r 2.4 plotting the effect of the treatment}
+
+# DENSITY PLOT OF Y FOR TREATMENT AND CONTROL GROUP
+ggplot(data = data) +
+  geom_density(data = data %>% subset(., D == 0), aes(x = Y, fill = 'Control'), alpha = 0.5) +
+  geom_density(data = data %>% subset(., D == 1), aes(x = Y, fill = 'Treatment'), alpha = 0.5) +
+  scale_fill_manual(values = c('Control' = 'red', 'Treatment' = 'blue')) +
+  xlab('Y')
+```
+We can see from this plot that the treatment group has a lower maximum and the curve is less skewed.
+
+```{r 2.4 calculating difference-in-means}
+
+# ATE as difference-in-means
+Yi0 = (data %>% subset(., D == 0))$Y
+Yi1 = (data %>% subset(., D == 1))$Y
+
+paste("Difference-in-means between realised Y (treatment and control):", round(abs((mean(Yi0) - mean(Yi1))),digits = 2))
+
+# ATE as regression
+lm(Y ~ D, data = data) %>% summary()
+```
+Both possibilities, calculating the ATE with difference-in-mean and with a linear regression come to the same value of 4181.0. This is not very close to the ground truth of 5000, which we calculated earlier. We can see that the realised values of Y show a similar but not the same average treatment effect. This might be due to the slight imbalance in the age and education characteristic or is an coincidence of the distribution which resulted from this specific randomization. We could test this by running the experiment with increasing n.
+
+
+2.5 
+
+```{r repeating the simulation}
+# Create a new dataset without a random seed
+# repeat the data creation n=1000 times and calculate the ATE for each iteration
+
+ATEs <- c()
+
+for (i in 1:1000) {
+  n <- 500
+  tau <- 5000
+  data <- data.frame(
+    Age = rnorm(n, mean = 42, sd = 10),
+    Education = sample(1:4, n, replace = TRUE),
+    Y0 = rnorm(n, mean = 50000, sd = 10000)
+  )
+  data <- data %>% mutate(
+    Y1 = Y0 + tau,
+    D = sample(c(0, 1), n, replace = TRUE),
+    Y = ifelse(D == 1, Y1, Y0)
+  )
+  
+  # ATE as difference-in-means
+  Yi0 = (data %>% subset(., D == 0))$Y
+  Yi1 = (data %>% subset(., D == 1))$Y
+  
+  # Save the ATEs in a vector
+  ATEs[i] <- round(abs((mean(Yi0) - mean(Yi1))),digits = 2)
+}
+
+# Plot the ATEs in a histogram
+ggplot(data.frame(ATEs), aes(x = ATEs)) +
+  geom_histogram(binwidth = 100, alpha = 0.7) +
+  xlab('ATE') +
+  ylab('Frequency') +
+  # Add a line of the ATE mean
+  geom_vline(xintercept = mean(ATEs), color = 'red', linetype = 'dashed')
+
+```
+
+The histogram shows that the ATEs are normally distributed around the true ATE of 5000. The mean of the ATEs is 4999.9, very close to the true ATE. This is not surprising because we now have a large sample size and the data is balanced. Now the ATE of 4181 from the linear regression and the t-test seems like a bad coincidence or a coding error.
+The ATEs are not exactly normally distributed, but the distribution is very close to normal.
+
+
+3 Replication on the how_to_elect_more_women dataset
+
+3.1 Creating a dummy variable which indictes if at least one women has been elected
+```{r loading data and setting dummy variable}
+# Load the data
+vote_data <- read_dta("how_to_elect_more_women.dta")
+
+# Create a dummy variable as an outcome variable if at least one woman was elected, values 1 if yes, 0 if not
+vote_data <- vote_data %>% mutate(
+  sd_onefem2014 = ifelse(prop_sd_fem2014 > 0, 1, 0)
+)
+
+```
+3.2
+Show the proportion of observations in each treatment/control group
+```{r showing the proportion of observations in each treatment/control group}
+
+# Show the proportion of votes in each treatment/control group
+treatment_control_groups <- vote_data %>% group_by(condition) %>% summarise(n = n())
+print(treatment_control_groups)
+```
+The proportions in the treatment/control groups are quite balanced, ranging from 538 to 541 each.
+
+3.3 Check if the two pre-trained characteristics age and distance from convention site are balanced
+```{r checking if the two pre-trained characteristics are balanced}
+library(broom)
+# Checking if the two pre-trained characteristics age and distance from convention site are balanced
+# As the t-test can only compare binary data, we have to define the two groups to compare one after another
+
+compare1 <- ifelse(vote_data$condition == 1, 1, 0)
+compare2 <- ifelse(vote_data$condition == 2, 1, 0)
+compare3 <- ifelse(vote_data$condition == 3, 1, 0)
+compare4 <- ifelse(vote_data$condition == 4, 1, 0)
+
+
+# Compare age among all treatment/control groups
+
+paste("The p-value of control vs other groups is ", t.test(vote_data$age ~ compare1, data=vote_data)$p.value)
+paste("The p-value of treatment supply vs other groups is ", t.test(vote_data$age ~ compare2, data=vote_data)$p.value)
+paste("The p-value of treatment demand vs other groups is ", t.test(vote_data$age ~ compare3, data=vote_data)$p.value)
+paste("The p-value of treatment supply+demand vs other groups is ", t.test(vote_data$age ~ compare4, data=vote_data)$p.value)
+
+# Compare race among all treatment/control groups
+
+paste("The p-value of control vs other groups is ", t.test(vote_data$race ~ compare1, data=vote_data)$p.value)
+paste("The p-value of treatment supply vs other groups is ", t.test(vote_data$race ~ compare2, data=vote_data)$p.value)
+paste("The p-value of treatment demand vs other groups is ", t.test(vote_data$race ~ compare3, data=vote_data)$p.value)
+paste("The p-value of treatment supply+demand vs other groups is ", t.test(vote_data$race ~ compare4, data=vote_data)$p.value)
+```
+We can see from the comparison that for each treatment/control group the pre-treatment characteristics race and age are very balanced, with small p-values for each group.
